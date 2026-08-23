@@ -7,6 +7,7 @@ export type ProjectSummary = {
   id: string;
   name: string;
   domain: string | null;
+  domains: string[];
   // Default market for the project's data calls.
   locationCode: number;
   languageCode: string;

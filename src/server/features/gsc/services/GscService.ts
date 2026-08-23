@@ -22,6 +22,9 @@ import {
   GscConnectionRepository,
   type GscConnection,
 } from "@/server/features/gsc/repositories/GscConnectionRepository";
+import { ProjectRepository } from "@/server/features/projects/repositories/ProjectRepository";
+import { normalizeBacklinksTarget } from "@/server/lib/dataforseoBacklinksTarget";
+import { mergeSearchAnalyticsRows } from "@/server/features/gsc/searchPerformanceReport";
 import type {
   GscSearchAnalyticsRequest,
   GscSearchAnalyticsRow,
@@ -30,8 +33,10 @@ import type {
 const SITE_UNVERIFIED_PERMISSION = "siteUnverifiedUser";
 
 type GscPerformanceResult = {
+  // Existing callers display this as the data source. A comma-separated list
+  // makes an aggregated report explicit without changing their API contract.
   siteUrl: string;
-  connectedBy: string | null;
+  siteUrls: string[];
   request: GscSearchAnalyticsRequest;
   rows: GscSearchAnalyticsRow[];
 };
@@ -48,6 +53,24 @@ type GscSiteListResult = {
 /** Thrown when a project has no connected GSC property. */
 async function getConnection(projectId: string): Promise<GscConnection | null> {
   return GscConnectionRepository.getByProjectId(projectId);
+}
+
+async function getConnections(projectId: string): Promise<GscConnection[]> {
+  return GscConnectionRepository.listByProjectId(projectId);
+}
+
+function getPropertyDomain(siteUrl: string): string {
+  const rawDomain = siteUrl.startsWith("sc-domain:")
+    ? siteUrl.slice("sc-domain:".length)
+    : new URL(siteUrl).hostname;
+  try {
+    return normalizeBacklinksTarget(rawDomain, { scope: "domain" }).apiTarget;
+  } catch {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      "That Search Console property does not have a valid domain.",
+    );
+  }
 }
 
 /** Whether this user has linked a google-search-console grant (regardless of
@@ -175,10 +198,21 @@ async function setSite(input: {
   } catch {
     connectedAccountEmail = null;
   }
+  const domain = getPropertyDomain(input.siteUrl);
+  const profileDomains = await ProjectRepository.listDomainsForProject(
+    input.projectId,
+  );
+  if (!profileDomains.some((entry) => entry.domain === domain)) {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      `Add ${domain} to this profile before connecting its Search Console property.`,
+    );
+  }
   return GscConnectionRepository.upsert({
     projectId: input.projectId,
     organizationId: input.organizationId,
     siteUrl: input.siteUrl,
+    domain,
     connectedByUserId: input.userId,
     gscAccountId: input.accountId,
     connectedAccountEmail,
@@ -202,12 +236,17 @@ async function unlinkUserGrant(
 
 async function disconnect(input: {
   projectId: string;
+  domain: string;
   userId: string;
 }): Promise<void> {
-  const connection = await GscConnectionRepository.getByProjectId(
+  const connections = await GscConnectionRepository.listByProjectId(
     input.projectId,
   );
-  await GscConnectionRepository.deleteByProjectId(input.projectId);
+  const connection = connections.find((entry) => entry.domain === input.domain);
+  await GscConnectionRepository.deleteByProjectDomain(
+    input.projectId,
+    input.domain,
+  );
   if (
     connection?.gscAccountId &&
     connection.connectedByUserId === input.userId
@@ -226,28 +265,33 @@ async function disconnect(input: {
 async function getPerformance(
   input: GscPerformanceInput,
 ): Promise<GscPerformanceResult> {
-  const connection = await GscConnectionRepository.getByProjectId(
+  const connections = await GscConnectionRepository.listByProjectId(
     input.projectId,
   );
-  if (!connection) {
+  if (connections.length === 0) {
     throw new GscNotConnectedError(input.projectId);
   }
   const request = buildSearchAnalyticsRequest(input);
-  const client = createGscClient({
-    userId: connection.connectedByUserId,
-    gscAccountId: connection.gscAccountId ?? undefined,
-  });
-  const rows = await client.querySearchAnalytics(connection.siteUrl, request);
+  const rowSets = await Promise.all(
+    connections.map(async (connection) => {
+      const client = createGscClient({
+        userId: connection.connectedByUserId,
+        gscAccountId: connection.gscAccountId ?? undefined,
+      });
+      return client.querySearchAnalytics(connection.siteUrl, request);
+    }),
+  );
   return {
-    siteUrl: connection.siteUrl,
-    connectedBy: connection.connectedAccountEmail,
+    siteUrl: connections.map((connection) => connection.siteUrl).join(", "),
+    siteUrls: connections.map((connection) => connection.siteUrl),
     request,
-    rows,
+    rows: mergeSearchAnalyticsRows(rowSets),
   };
 }
 
 type GscUrlInspection = {
   url: string;
+  siteUrl: string;
   result: UrlInspectionResult | null;
   error?: string;
 };
@@ -267,43 +311,58 @@ async function inspectUrls(input: {
   urls: string[];
   languageCode?: string;
 }): Promise<GscInspectUrlsResult> {
-  const connection = await GscConnectionRepository.getByProjectId(
+  const connections = await GscConnectionRepository.listByProjectId(
     input.projectId,
   );
-  if (!connection) {
+  if (connections.length === 0) {
     throw new GscNotConnectedError(input.projectId);
   }
-  const client = createGscClient({
-    userId: connection.connectedByUserId,
-    gscAccountId: connection.gscAccountId ?? undefined,
-  });
   const results: GscUrlInspection[] = [];
   for (const url of input.urls) {
+    const hostname = new URL(url).hostname.toLowerCase();
+    const connection = connections
+      .filter(
+        (entry) =>
+          hostname === entry.domain || hostname.endsWith(`.${entry.domain}`),
+      )
+      .toSorted((a, b) => b.domain.length - a.domain.length)[0];
+    if (!connection) {
+      throw new AppError(
+        "NOT_FOUND",
+        "No connected Search Console property matches that URL's domain.",
+      );
+    }
+    const client = createGscClient({
+      userId: connection.connectedByUserId,
+      gscAccountId: connection.gscAccountId ?? undefined,
+    });
     try {
       const result = await client.inspectUrl(
         connection.siteUrl,
         url,
         input.languageCode,
       );
-      results.push({ url, result });
+      results.push({ url, siteUrl: connection.siteUrl, result });
     } catch (error) {
       if (error instanceof GscTokenError) throw error;
       results.push({
         url,
+        siteUrl: connection.siteUrl,
         result: null,
         error: error instanceof Error ? error.message : "Inspection failed",
       });
     }
   }
   return {
-    siteUrl: connection.siteUrl,
-    connectedBy: connection.connectedAccountEmail,
+    siteUrl: results[0]?.siteUrl ?? connections[0].siteUrl,
+    connectedBy: connections[0].connectedAccountEmail,
     results,
   };
 }
 
 export const GscService = {
   getConnection,
+  getConnections,
   userHasGrant,
   listSitesForUserWithGrantStatus,
   setSite,

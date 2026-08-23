@@ -1,6 +1,17 @@
-import { and, count, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  sql,
+} from "drizzle-orm";
 import { db } from "@/db";
-import { projects } from "@/db/schema";
+import { runBatch } from "@/db/runBatch";
+import { projectDomains, projects } from "@/db/schema";
 import { AppError } from "@/server/lib/errors";
 
 async function listProjects(organizationId: string) {
@@ -24,6 +35,19 @@ async function countProjects(organizationId: string) {
       ),
     );
   return row?.value ?? 0;
+}
+
+async function listDomainsForProjects(projectIds: string[]) {
+  if (projectIds.length === 0) return [];
+  return db
+    .select()
+    .from(projectDomains)
+    .where(inArray(projectDomains.projectId, projectIds))
+    .orderBy(asc(projectDomains.createdAt), asc(projectDomains.domain));
+}
+
+async function listDomainsForProject(projectId: string) {
+  return listDomainsForProjects([projectId]);
 }
 
 async function getProjectForOrganization(
@@ -65,10 +89,20 @@ async function createProject(
   market?: { locationCode: number; languageCode: string },
 ) {
   const id = crypto.randomUUID();
+  await runBatch((tx) => [
+    tx.insert(projects).values({ id, organizationId, name, domain, ...market }),
+    ...(domain
+      ? [tx.insert(projectDomains).values({ projectId: id, domain })]
+      : []),
+  ]);
   const [row] = await db
-    .insert(projects)
-    .values({ id, organizationId, name, domain, ...market })
-    .returning();
+    .select()
+    .from(projects)
+    .where(eq(projects.id, id))
+    .limit(1);
+  if (!row) {
+    throw new Error("Failed to create project");
+  }
   return row;
 }
 
@@ -123,6 +157,46 @@ async function updateProjectDomain(
     throw new AppError("NOT_FOUND");
   }
 
+  return row;
+}
+
+async function replaceProjectDomains(
+  projectId: string,
+  organizationId: string,
+  domains: string[],
+  primaryDomain: string | null,
+) {
+  await runBatch((tx) => [
+    tx
+      .update(projects)
+      .set({ domain: primaryDomain })
+      .where(
+        and(
+          eq(projects.id, projectId),
+          eq(projects.organizationId, organizationId),
+          isNull(projects.archivedAt),
+        ),
+      ),
+    tx.delete(projectDomains).where(eq(projectDomains.projectId, projectId)),
+    ...domains.map((domain) =>
+      tx.insert(projectDomains).values({ projectId, domain }),
+    ),
+  ]);
+
+  const [row] = await db
+    .select()
+    .from(projects)
+    .where(
+      and(
+        eq(projects.id, projectId),
+        eq(projects.organizationId, organizationId),
+        isNull(projects.archivedAt),
+      ),
+    )
+    .limit(1);
+  if (!row) {
+    throw new AppError("NOT_FOUND");
+  }
   return row;
 }
 
@@ -218,11 +292,14 @@ export const ProjectRepository = {
   listProjects,
   listArchivedProjects,
   countProjects,
+  listDomainsForProjects,
+  listDomainsForProject,
   getProjectForOrganization,
   getProjectById,
   createProject,
   updateProject,
   updateProjectDomain,
+  replaceProjectDomains,
   updateProjectMarket,
   tryCreateDefaultProject,
   archiveProject,

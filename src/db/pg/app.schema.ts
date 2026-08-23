@@ -4,6 +4,7 @@ import {
   boolean,
   index,
   integer,
+  primaryKey,
   pgTable,
   real,
   serial,
@@ -88,6 +89,26 @@ export const projects = pgTable(
     // list queries seq-scan. Per-org row counts are small, so the archived/
     // created_at ordering sorts cheaply on top of this single-column lookup.
     index("projects_organization_id_idx").on(table.organizationId),
+  ],
+);
+
+// A profile may group several sites. `projects.domain` remains the primary
+// domain for existing one-domain flows while this table holds the full list.
+export const projectDomains = pgTable(
+  "project_domains",
+  {
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    domain: text("domain").notNull(),
+    createdAt: timestampColumn("created_at").notNull().default(isoNow),
+  },
+  (table) => [
+    primaryKey({ columns: [table.projectId, table.domain] }),
+    index("project_domains_project_created_idx").on(
+      table.projectId,
+      table.createdAt,
+    ),
   ],
 );
 

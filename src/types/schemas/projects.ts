@@ -70,6 +70,12 @@ export const setProjectDomainSchema = z.object({
   domain: z.string().trim().min(1).max(255),
 });
 
+export const setProjectDomainsSchema = z.object({
+  projectId: z.string().min(1),
+  domains: z.array(z.string().trim().min(1).max(255)).max(50),
+  primaryDomain: z.string().trim().min(1).max(255).optional(),
+});
+
 // Market-only update (onboarding). Both halves are required: the caller picks
 // them together, so the service can validate the pair without a stored row.
 export const setProjectMarketSchema = z.object({
@@ -97,6 +103,7 @@ export const restoreProjectSchema = z.object({
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 export type SetProjectDomainInput = z.infer<typeof setProjectDomainSchema>;
+export type SetProjectDomainsInput = z.infer<typeof setProjectDomainsSchema>;
 export type SetProjectMarketInput = z.infer<typeof setProjectMarketSchema>;
 export type ArchiveProjectInput = z.infer<typeof archiveProjectSchema>;
 export type RestoreProjectInput = z.infer<typeof restoreProjectSchema>;

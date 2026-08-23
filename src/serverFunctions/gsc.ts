@@ -21,6 +21,9 @@ const setSiteSchema = projectScopedSchema.extend({
   accountId: z.string().min(1),
   siteUrl: z.string().min(1),
 });
+const disconnectSiteSchema = projectScopedSchema.extend({
+  domain: z.string().min(1),
+});
 const startSelfHostedLinkSchema = z.object({
   callbackURL: z.string().min(1),
 });
@@ -38,20 +41,26 @@ export const getGscConnection = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(projectScopedSchema)
   .handler(async ({ context }) => {
-    const [connection, currentUserHasGrant, hosted, gscConfigured] =
+    const [connections, currentUserHasGrant, hosted, gscConfigured] =
       await Promise.all([
-        GscService.getConnection(context.projectId),
+        GscService.getConnections(context.projectId),
         GscService.userHasGrant(context.userId),
         isHostedServerAuthMode(),
         hasSelfHostedGoogleOAuthConfig(),
       ]);
     return {
-      connected: Boolean(connection),
+      connected: connections.length > 0,
       currentUserHasGrant,
       googleOAuthConfigured: hosted || gscConfigured,
-      siteUrl: connection?.siteUrl ?? null,
-      connectedByEmail: connection?.connectedAccountEmail ?? null,
-      connectedAt: connection?.createdAt ?? null,
+      siteUrl: connections[0]?.siteUrl ?? null,
+      connectedByEmail: connections[0]?.connectedAccountEmail ?? null,
+      connectedAt: connections[0]?.createdAt ?? null,
+      connections: connections.map((connection) => ({
+        domain: connection.domain,
+        siteUrl: connection.siteUrl,
+        connectedByEmail: connection.connectedAccountEmail,
+        connectedAt: connection.createdAt,
+      })),
     };
   });
 
@@ -59,24 +68,25 @@ export const listGscSites = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(projectScopedSchema)
   .handler(async ({ context }) => {
-    const [siteList, connection] = await Promise.all([
+    const [siteList, connections] = await Promise.all([
       GscService.listSitesForUserWithGrantStatus(context.userId),
-      GscService.getConnection(context.projectId),
+      GscService.getConnections(context.projectId),
     ]);
-    let legacySelectionMatched = false;
+    const selectedProperties = new Set(
+      connections.map(
+        (connection) =>
+          `${connection.gscAccountId ?? "legacy"}:${connection.siteUrl}`,
+      ),
+    );
     return {
       accounts: siteList.accounts.map((grant) => ({
         accountId: grant.accountId,
         email: grant.email,
         requiresReconnect: grant.requiresReconnect,
         sites: grant.sites.map((site) => {
-          const isSelected = connection?.gscAccountId
-            ? connection.gscAccountId === grant.accountId &&
-              connection.siteUrl === site.siteUrl
-            : !legacySelectionMatched && connection?.siteUrl === site.siteUrl;
-          if (!connection?.gscAccountId && isSelected) {
-            legacySelectionMatched = true;
-          }
+          const isSelected =
+            selectedProperties.has(`${grant.accountId}:${site.siteUrl}`) ||
+            selectedProperties.has(`legacy:${site.siteUrl}`);
           return {
             siteUrl: site.siteUrl,
             permissionLevel: site.permissionLevel,
@@ -112,10 +122,11 @@ export const setGscSite = createServerFn({ method: "POST" })
 
 export const disconnectGsc = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
-  .validator(projectScopedSchema)
-  .handler(async ({ context }) => {
+  .validator(disconnectSiteSchema)
+  .handler(async ({ data, context }) => {
     await GscService.disconnect({
       projectId: context.projectId,
+      domain: data.domain,
       userId: context.userId,
     });
     waitUntil(
@@ -123,7 +134,7 @@ export const disconnectGsc = createServerFn({ method: "POST" })
         distinctId: context.userId,
         event: "gsc:disconnect",
         organizationId: context.organizationId,
-        properties: { project_id: context.projectId },
+        properties: { project_id: context.projectId, domain: data.domain },
       }),
     );
     return { connected: false as const };

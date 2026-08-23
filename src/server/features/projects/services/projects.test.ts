@@ -4,6 +4,9 @@ const mocks = vi.hoisted(() => ({
   createProject: vi.fn(),
   updateProject: vi.fn(),
   updateProjectDomain: vi.fn(),
+  listDomainsForProjects: vi.fn(),
+  listDomainsForProject: vi.fn(),
+  replaceProjectDomains: vi.fn(),
   archiveProject: vi.fn(),
   restoreProject: vi.fn(),
   countProjects: vi.fn(),
@@ -36,6 +39,9 @@ describe("project service", () => {
   beforeEach(() => {
     vi.resetModules();
     for (const mock of Object.values(mocks)) mock.mockReset();
+    mocks.listDomainsForProjects.mockResolvedValue([]);
+    mocks.listDomainsForProject.mockResolvedValue([]);
+    mocks.replaceProjectDomains.mockResolvedValue(namedProject);
   });
 
   describe("listProjectsEnsuringOne", () => {
@@ -43,8 +49,8 @@ describe("project service", () => {
       mocks.listProjects.mockResolvedValue([namedProject]);
       const { listProjectsEnsuringOne } = await import("./projects");
 
-      await expect(listProjectsEnsuringOne("org_1")).resolves.toEqual([
-        namedProject,
+      await expect(listProjectsEnsuringOne("org_1")).resolves.toMatchObject([
+        { ...namedProject, domains: [] },
       ]);
       expect(mocks.tryCreateDefaultProject).not.toHaveBeenCalled();
       expect(mocks.listProjects).toHaveBeenCalledTimes(1);
@@ -57,8 +63,8 @@ describe("project service", () => {
       mocks.tryCreateDefaultProject.mockResolvedValue("project_default");
       const { listProjectsEnsuringOne } = await import("./projects");
 
-      await expect(listProjectsEnsuringOne("org_1")).resolves.toEqual([
-        defaultProject,
+      await expect(listProjectsEnsuringOne("org_1")).resolves.toMatchObject([
+        { ...defaultProject, domains: [] },
       ]);
       expect(mocks.tryCreateDefaultProject).toHaveBeenCalledWith("org_1");
       expect(mocks.listProjects).toHaveBeenCalledTimes(2);
@@ -73,8 +79,8 @@ describe("project service", () => {
       mocks.tryCreateDefaultProject.mockResolvedValue(null);
       const { listProjectsEnsuringOne } = await import("./projects");
 
-      await expect(listProjectsEnsuringOne("org_1")).resolves.toEqual([
-        defaultProject,
+      await expect(listProjectsEnsuringOne("org_1")).resolves.toMatchObject([
+        { ...defaultProject, domains: [] },
       ]);
     });
   });
@@ -86,7 +92,7 @@ describe("project service", () => {
 
       await expect(
         createProject("org_1", { name: "Acme", domain: "acme.com" }),
-      ).resolves.toEqual(namedProject);
+      ).resolves.toMatchObject({ ...namedProject, domains: ["acme.com"] });
       expect(mocks.createProject).toHaveBeenCalledWith(
         "org_1",
         "Acme",
@@ -181,7 +187,7 @@ describe("project service", () => {
           name: "Acme",
           domain: "acme.com",
         }),
-      ).resolves.toEqual(namedProject);
+      ).resolves.toMatchObject({ ...namedProject, domains: ["acme.com"] });
       expect(mocks.updateProject).toHaveBeenCalledWith(
         "project_acme",
         "org_1",
@@ -192,6 +198,7 @@ describe("project service", () => {
     it("clears the domain when none is provided", async () => {
       const cleared = { ...namedProject, domain: null };
       mocks.updateProject.mockResolvedValue(cleared);
+      mocks.replaceProjectDomains.mockResolvedValue(cleared);
       const { updateProject } = await import("./projects");
 
       await expect(
@@ -200,7 +207,7 @@ describe("project service", () => {
           name: "Acme",
           domain: undefined,
         }),
-      ).resolves.toEqual(cleared);
+      ).resolves.toMatchObject({ ...cleared, domains: [] });
       expect(mocks.updateProject).toHaveBeenCalledWith(
         "project_acme",
         "org_1",
@@ -211,7 +218,6 @@ describe("project service", () => {
 
   describe("setProjectDomain", () => {
     it("canonicalizes a pasted URL to the bare host before writing", async () => {
-      mocks.updateProjectDomain.mockResolvedValue(namedProject);
       const { setProjectDomain } = await import("./projects");
 
       await setProjectDomain("org_1", {
@@ -219,9 +225,10 @@ describe("project service", () => {
         domain: "https://www.Acme.com/pricing?ref=x",
       });
 
-      expect(mocks.updateProjectDomain).toHaveBeenCalledWith(
+      expect(mocks.replaceProjectDomains).toHaveBeenCalledWith(
         "project_acme",
         "org_1",
+        ["acme.com"],
         "acme.com",
       );
     });
@@ -235,7 +242,7 @@ describe("project service", () => {
           domain: "not a domain",
         }),
       ).rejects.toThrow("Enter a valid domain");
-      expect(mocks.updateProjectDomain).not.toHaveBeenCalled();
+      expect(mocks.replaceProjectDomains).not.toHaveBeenCalled();
     });
   });
 

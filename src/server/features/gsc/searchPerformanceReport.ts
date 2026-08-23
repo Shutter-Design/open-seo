@@ -23,6 +23,40 @@ type SearchPerformanceDimensionRow = {
   position: number;
 };
 
+/** Combines equivalent Search Console rows from several profile properties.
+ *
+ * GSC reports each selected property separately. A profile-wide report must
+ * add clicks and impressions, then recalculate CTR and the impression-weighted
+ * position for matching dimension keys.
+ */
+export function mergeSearchAnalyticsRows(
+  rowSets: GscSearchAnalyticsRow[][],
+): GscSearchAnalyticsRow[] {
+  const merged = new Map<string, GscSearchAnalyticsRow>();
+  for (const rows of rowSets) {
+    for (const row of rows) {
+      const key = JSON.stringify(row.keys ?? []);
+      const current = merged.get(key);
+      if (!current) {
+        merged.set(key, { ...row, keys: row.keys ? [...row.keys] : undefined });
+        continue;
+      }
+      const impressions = current.impressions + row.impressions;
+      const clicks = current.clicks + row.clicks;
+      current.clicks = clicks;
+      current.impressions = impressions;
+      current.ctr = impressions > 0 ? clicks / impressions : 0;
+      current.position =
+        impressions > 0
+          ? (current.position * (impressions - row.impressions) +
+              row.position * row.impressions) /
+            impressions
+          : 0;
+    }
+  }
+  return Array.from(merged.values());
+}
+
 type StrikingDistanceRow = {
   query: string;
   page: string;

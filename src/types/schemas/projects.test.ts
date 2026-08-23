@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createProjectSchema, updateProjectSchema } from "./projects";
+import {
+  createProjectSchema,
+  setProjectDomainsSchema,
+  updateProjectSchema,
+} from "./projects";
 
 // The service derives a missing language from the location, so a language
 // arriving on its own has nothing to validate against.
@@ -35,5 +39,17 @@ describe("project market fields", () => {
 
   it("accepts a project with no market at all", () => {
     expect(createProjectSchema.safeParse({ name: "Acme" }).success).toBe(true);
+  });
+});
+
+describe("profile domain list", () => {
+  it("accepts a bounded editable list with a primary domain", () => {
+    expect(
+      setProjectDomainsSchema.safeParse({
+        projectId: "project_1",
+        domains: ["acme.com", "acme.co.uk"],
+        primaryDomain: "acme.co.uk",
+      }).success,
+    ).toBe(true);
   });
 });

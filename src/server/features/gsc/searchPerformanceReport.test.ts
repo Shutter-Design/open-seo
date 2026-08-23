@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildStrikingDistanceRows,
+  mergeSearchAnalyticsRows,
   previousPeriod,
   sumSearchTotals,
   toDimensionRows,
@@ -26,6 +27,55 @@ describe("sumSearchTotals", () => {
       ctr: 0,
       position: 0,
     });
+  });
+});
+
+describe("mergeSearchAnalyticsRows", () => {
+  it("adds matching rows from separate profile domains before recalculating rates", () => {
+    expect(
+      mergeSearchAnalyticsRows([
+        [
+          {
+            keys: ["shutters"],
+            clicks: 10,
+            impressions: 100,
+            ctr: 0.1,
+            position: 4,
+          },
+        ],
+        [
+          {
+            keys: ["shutters"],
+            clicks: 5,
+            impressions: 300,
+            ctr: 1 / 60,
+            position: 8,
+          },
+          {
+            keys: ["blinds"],
+            clicks: 2,
+            impressions: 20,
+            ctr: 0.1,
+            position: 3,
+          },
+        ],
+      ]),
+    ).toEqual([
+      {
+        keys: ["shutters"],
+        clicks: 15,
+        impressions: 400,
+        ctr: 15 / 400,
+        position: 7,
+      },
+      {
+        keys: ["blinds"],
+        clicks: 2,
+        impressions: 20,
+        ctr: 0.1,
+        position: 3,
+      },
+    ]);
   });
 });
 

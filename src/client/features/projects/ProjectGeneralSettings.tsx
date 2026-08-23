@@ -11,6 +11,7 @@ import {
 import {
   archiveProject,
   getProjects,
+  setProjectDomains,
   updateProject,
 } from "@/serverFunctions/projects";
 import type { ProjectSummary } from "./types";
@@ -35,6 +36,7 @@ export function ProjectGeneralSettings({ projectId }: { projectId: string }) {
     <div className="space-y-8">
       {/* key resets the form's local state when switching between projects */}
       <GeneralSection key={project.id} project={project} />
+      <DomainsSection project={project} />
       <DangerSection project={project} canArchive={projects.length > 1} />
     </div>
   );
@@ -43,7 +45,6 @@ export function ProjectGeneralSettings({ projectId }: { projectId: string }) {
 function GeneralSection({ project }: { project: ProjectSummary }) {
   const queryClient = useQueryClient();
   const [name, setName] = React.useState(project.name);
-  const [domain, setDomain] = React.useState(project.domain ?? "");
   const [market, setMarket] = React.useState({
     locationCode: project.locationCode,
     languageCode: project.languageCode,
@@ -55,7 +56,9 @@ function GeneralSection({ project }: { project: ProjectSummary }) {
         data: {
           projectId: project.id,
           name: name.trim(),
-          domain: domain.trim() || undefined,
+          // updateProject historically clears an omitted domain, so preserve
+          // the primary domain while this form edits only name and market.
+          domain: project.domain ?? undefined,
           ...market,
         },
       }),
@@ -69,7 +72,6 @@ function GeneralSection({ project }: { project: ProjectSummary }) {
 
   const isDirty =
     name.trim() !== project.name ||
-    (domain.trim() || "") !== (project.domain ?? "") ||
     market.locationCode !== project.locationCode ||
     market.languageCode !== project.languageCode;
 
@@ -98,20 +100,6 @@ function GeneralSection({ project }: { project: ProjectSummary }) {
           />
         </label>
 
-        <label className="flex flex-col gap-1.5 text-sm">
-          <span className="font-medium">
-            Domain <span className="text-base-content/50">(optional)</span>
-          </span>
-          <input
-            type="text"
-            value={domain}
-            onChange={(event) => setDomain(event.target.value)}
-            placeholder="example.com"
-            maxLength={255}
-            className="input input-bordered w-full"
-          />
-        </label>
-
         <div className="flex flex-col gap-1.5">
           <ProjectMarketFields value={market} onChange={setMarket} />
           <span className="text-xs text-base-content/50">
@@ -130,6 +118,128 @@ function GeneralSection({ project }: { project: ProjectSummary }) {
           </button>
         </div>
       </form>
+    </section>
+  );
+}
+
+function DomainsSection({ project }: { project: ProjectSummary }) {
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = React.useState("");
+  const saveMutation = useMutation({
+    mutationFn: (input: { domains: string[]; primaryDomain?: string }) =>
+      setProjectDomains({
+        data: { projectId: project.id, ...input },
+      }),
+    onSuccess: async () => {
+      setDraft("");
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      toast.success("Domains saved");
+    },
+    onError: (error) =>
+      toast.error(getStandardErrorMessage(error, "Failed to save domains")),
+  });
+
+  const addDomain = () => {
+    const nextDomain = draft.trim();
+    if (!nextDomain) return;
+    if (project.domains.includes(nextDomain.toLowerCase())) {
+      toast.error("That domain is already in this profile");
+      return;
+    }
+    saveMutation.mutate({
+      domains: [...project.domains, nextDomain],
+      primaryDomain: project.domain ?? nextDomain,
+    });
+  };
+
+  const removeDomain = (domain: string) => {
+    const domains = project.domains.filter((entry) => entry !== domain);
+    saveMutation.mutate({
+      domains,
+      primaryDomain:
+        project.domain === domain ? domains[0] : (project.domain ?? undefined),
+    });
+  };
+
+  return (
+    <section className="space-y-3 border-t border-base-300 pt-8">
+      <div className="space-y-1">
+        <h2 className="text-sm font-medium text-base-content/50">Domains</h2>
+        <p className="text-sm text-base-content/60">
+          Add every site you want in this profile. Search Console totals combine
+          their connected properties.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        {project.domains.length === 0 ? (
+          <p className="text-sm text-base-content/50">No domains added yet.</p>
+        ) : (
+          project.domains.map((domain) => (
+            <div
+              key={domain}
+              className="flex items-center justify-between gap-3 rounded-lg border border-base-300 bg-base-200/30 px-3 py-2"
+            >
+              <div className="min-w-0">
+                <p className="truncate font-mono text-sm">{domain}</p>
+                {project.domain === domain ? (
+                  <p className="text-xs text-base-content/50">Primary domain</p>
+                ) : null}
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                {project.domain !== domain ? (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() =>
+                      saveMutation.mutate({
+                        domains: project.domains,
+                        primaryDomain: domain,
+                      })
+                    }
+                    disabled={saveMutation.isPending}
+                  >
+                    Make primary
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm text-error hover:bg-error/10"
+                  onClick={() => removeDomain(domain)}
+                  disabled={saveMutation.isPending}
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <input
+          type="text"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              addDomain();
+            }
+          }}
+          placeholder="example.com"
+          maxLength={255}
+          className="input input-bordered w-full"
+        />
+        <button
+          type="button"
+          className="btn btn-outline shrink-0"
+          onClick={addDomain}
+          disabled={saveMutation.isPending || !draft.trim()}
+        >
+          Add domain
+        </button>
+      </div>
     </section>
   );
 }

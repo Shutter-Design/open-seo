@@ -7,6 +7,7 @@ import {
   listProjectsEnsuringOne,
   restoreProject,
   setProjectDomain,
+  setProjectDomains,
   setProjectMarket,
   updateProject,
 } from "@/server/features/projects/services/projects";
@@ -17,6 +18,7 @@ export const ProjectService = {
   createProject,
   updateProject,
   setProjectDomain,
+  setProjectDomains,
   setProjectMarket,
   archiveProject,
   restoreProject,

@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { gscConnections } from "@/db/schema";
 
@@ -11,14 +11,24 @@ async function getByProjectId(
     .select()
     .from(gscConnections)
     .where(eq(gscConnections.projectId, projectId))
+    .orderBy(asc(gscConnections.createdAt))
     .limit(1);
   return rows[0] ?? null;
+}
+
+async function listByProjectId(projectId: string): Promise<GscConnection[]> {
+  return db
+    .select()
+    .from(gscConnections)
+    .where(eq(gscConnections.projectId, projectId))
+    .orderBy(asc(gscConnections.createdAt));
 }
 
 async function upsert(input: {
   projectId: string;
   organizationId: string;
   siteUrl: string;
+  domain: string;
   connectedByUserId: string;
   gscAccountId: string;
   connectedAccountEmail: string | null;
@@ -27,7 +37,7 @@ async function upsert(input: {
     .insert(gscConnections)
     .values({ id: crypto.randomUUID(), ...input })
     .onConflictDoUpdate({
-      target: gscConnections.projectId,
+      target: [gscConnections.projectId, gscConnections.domain],
       set: {
         siteUrl: input.siteUrl,
         organizationId: input.organizationId,
@@ -44,10 +54,18 @@ async function upsert(input: {
   return row;
 }
 
-async function deleteByProjectId(projectId: string): Promise<void> {
+async function deleteByProjectDomain(
+  projectId: string,
+  domain: string,
+): Promise<void> {
   await db
     .delete(gscConnections)
-    .where(eq(gscConnections.projectId, projectId));
+    .where(
+      and(
+        eq(gscConnections.projectId, projectId),
+        eq(gscConnections.domain, domain),
+      ),
+    );
 }
 
 async function existsForConnectorAccount(
@@ -69,7 +87,8 @@ async function existsForConnectorAccount(
 
 export const GscConnectionRepository = {
   getByProjectId,
+  listByProjectId,
   upsert,
-  deleteByProjectId,
+  deleteByProjectDomain,
   existsForConnectorAccount,
 };

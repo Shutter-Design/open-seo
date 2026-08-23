@@ -67,26 +67,12 @@ export function SearchConsoleConnectionCard({
     void queryClient.invalidateQueries({ queryKey: GRANT_STATUS_KEY });
   }, [requiresReconnect, queryClient, projectId]);
 
-  React.useEffect(() => {
-    if (selection) return;
-    for (const account of accounts) {
-      const selectedSite = account.sites.find((site) => site.isSelected);
-      if (selectedSite) {
-        setSelection({
-          accountId: account.accountId,
-          siteUrl: selectedSite.siteUrl,
-        });
-        return;
-      }
-    }
-  }, [accounts, selection]);
-
   const setSiteMutation = useMutation({
     mutationFn: (selected: GscSiteSelection) =>
       setGscSite({ data: { projectId, ...selected } }),
     onSuccess: () => {
       captureClientEvent("gsc:property_select");
-      toast.success("Search Console connected");
+      toast.success("Search Console property saved");
       setPicking(false);
       void queryClient.invalidateQueries({ queryKey: connectionKey });
       void queryClient.invalidateQueries({ queryKey: GRANT_STATUS_KEY });
@@ -111,7 +97,8 @@ export function SearchConsoleConnectionCard({
   });
 
   const disconnectMutation = useMutation({
-    mutationFn: () => disconnectGsc({ data: { projectId } }),
+    mutationFn: (domain: string) =>
+      disconnectGsc({ data: { projectId, domain } }),
     onSuccess: () => {
       toast.success("Search Console disconnected");
       setPicking(false);
@@ -161,14 +148,15 @@ export function SearchConsoleConnectionCard({
         <SelfHostedSetupWarning />
       ) : connected && !picking ? (
         <ConnectedState
-          siteUrl={connection?.siteUrl ?? ""}
-          connectedByEmail={connection?.connectedByEmail ?? null}
-          onChange={() => {
+          connections={connection?.connections ?? []}
+          onAdd={() => {
             setSelection(null);
             setPicking(true);
           }}
-          onDisconnect={() => disconnectMutation.mutate()}
-          disconnecting={disconnectMutation.isPending}
+          onDisconnect={(domain) => disconnectMutation.mutate(domain)}
+          disconnectingDomain={
+            disconnectMutation.isPending ? disconnectMutation.variables : null
+          }
         />
       ) : showPicker ? (
         <SitePicker
@@ -184,12 +172,7 @@ export function SearchConsoleConnectionCard({
           secondaryAction={
             connected
               ? { label: "Cancel", onClick: () => setPicking(false) }
-              : {
-                  label: "Disconnect",
-                  destructive: true,
-                  disabled: disconnectMutation.isPending,
-                  onClick: () => disconnectMutation.mutate(),
-                }
+              : undefined
           }
         />
       ) : (
@@ -217,48 +200,56 @@ export function SearchConsoleConnectionCard({
 // ---------------------------------------------------------------------------
 
 function ConnectedState({
-  siteUrl,
-  connectedByEmail,
-  onChange,
+  connections,
+  onAdd,
   onDisconnect,
-  disconnecting,
+  disconnectingDomain,
 }: {
-  siteUrl: string;
-  connectedByEmail: string | null;
-  onChange: () => void;
-  onDisconnect: () => void;
-  disconnecting: boolean;
+  connections: Array<{
+    domain: string;
+    siteUrl: string;
+    connectedByEmail: string | null;
+  }>;
+  onAdd: () => void;
+  onDisconnect: (domain: string) => void;
+  disconnectingDomain: string | null;
 }) {
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3 rounded-lg border border-base-300 bg-base-200/40 p-3.5">
-        <div className="grid size-9 shrink-0 place-items-center rounded-md border border-base-300 bg-base-100">
-          <GoogleSearchConsoleLogo className="size-5" />
-        </div>
-        <div className="min-w-0">
-          <p className="truncate font-mono text-sm">{siteUrl}</p>
-          {connectedByEmail ? (
-            <p className="truncate text-xs text-base-content/55">
-              Connected by {connectedByEmail}
-            </p>
-          ) : null}
-        </div>
+      <div className="space-y-2">
+        {connections.map((connection) => (
+          <div
+            key={connection.domain}
+            className="flex items-center gap-3 rounded-lg border border-base-300 bg-base-200/40 p-3.5"
+          >
+            <div className="grid size-9 shrink-0 place-items-center rounded-md border border-base-300 bg-base-100">
+              <GoogleSearchConsoleLogo className="size-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-mono text-sm">{connection.siteUrl}</p>
+              <p className="truncate text-xs text-base-content/55">
+                {connection.domain}
+                {connection.connectedByEmail
+                  ? ` · ${connection.connectedByEmail}`
+                  : ""}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm text-error hover:bg-error/10"
+              onClick={() => onDisconnect(connection.domain)}
+              disabled={disconnectingDomain !== null}
+            >
+              {disconnectingDomain === connection.domain
+                ? "Removing…"
+                : "Remove"}
+            </button>
+          </div>
+        ))}
       </div>
       <div className="flex items-center gap-1">
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          onClick={onChange}
-        >
-          Change property
-        </button>
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm text-error hover:bg-error/10"
-          onClick={onDisconnect}
-          disabled={disconnecting}
-        >
-          Disconnect
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onAdd}>
+          Add property
         </button>
       </div>
     </div>

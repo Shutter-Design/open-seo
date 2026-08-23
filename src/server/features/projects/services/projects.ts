@@ -12,18 +12,22 @@ import { AppError } from "@/server/lib/errors";
 import { assertLanguageForLocation } from "@/server/lib/market";
 import { getLanguageCode } from "@/shared/keyword-locations";
 
-function mapProject(project: {
-  id: string;
-  name: string;
-  domain: string | null;
-  locationCode: number;
-  languageCode: string;
-  createdAt: string;
-}) {
+function mapProject(
+  project: {
+    id: string;
+    name: string;
+    domain: string | null;
+    locationCode: number;
+    languageCode: string;
+    createdAt: string;
+  },
+  domains: string[] = project.domain ? [project.domain] : [],
+) {
   return {
     id: project.id,
     name: project.name,
     domain: project.domain,
+    domains,
     // Default market for the project's data calls (MCP tools and the web UI
     // fall back to these when a call omits locationCode/languageCode).
     locationCode: project.locationCode,
@@ -69,7 +73,18 @@ const RESERVED_DEFAULT_MESSAGE =
 
 export async function listProjects(organizationId: string) {
   const rows = await ProjectRepository.listProjects(organizationId);
-  return rows.map(mapProject);
+  const domainRows = await ProjectRepository.listDomainsForProjects(
+    rows.map((project) => project.id),
+  );
+  const domainsByProject = new Map<string, string[]>();
+  for (const row of domainRows) {
+    const domains = domainsByProject.get(row.projectId) ?? [];
+    domains.push(row.domain);
+    domainsByProject.set(row.projectId, domains);
+  }
+  return rows.map((project) =>
+    mapProject(project, domainsByProject.get(project.id) ?? []),
+  );
 }
 
 // Source of truth for "which projects does this org have", guaranteeing at least
@@ -114,7 +129,7 @@ export async function createProject(
       normalizeProjectDomain(input.domain),
       resolveMarketInput(input),
     );
-    return mapProject(row);
+    return mapProject(row, row.domain ? [row.domain] : []);
   } catch (error) {
     if (isReservedDefaultConflict(error, input)) {
       throw new AppError("CONFLICT", RESERVED_DEFAULT_MESSAGE);
@@ -137,7 +152,24 @@ export async function updateProject(
         market: resolveMarketInput(input),
       },
     );
-    return mapProject(row);
+    const existingDomains = await ProjectRepository.listDomainsForProject(
+      input.projectId,
+    );
+    const domains = row.domain
+      ? Array.from(
+          new Set([
+            ...existingDomains.map((entry) => entry.domain),
+            row.domain,
+          ]),
+        )
+      : [];
+    const updated = await ProjectRepository.replaceProjectDomains(
+      input.projectId,
+      organizationId,
+      domains,
+      row.domain,
+    );
+    return mapProject(updated, domains);
   } catch (error) {
     if (isReservedDefaultConflict(error, input)) {
       throw new AppError("CONFLICT", RESERVED_DEFAULT_MESSAGE);
@@ -159,12 +191,46 @@ export async function setProjectDomain(
   if (domain === undefined) {
     throw new AppError("VALIDATION_ERROR", "Enter a valid domain.");
   }
-  const row = await ProjectRepository.updateProjectDomain(
+  const domains = await ProjectRepository.listDomainsForProject(
+    input.projectId,
+  );
+  const domainNames = domains.map((entry) => entry.domain);
+  if (!domainNames.includes(domain)) domainNames.push(domain);
+  const updated = await ProjectRepository.replaceProjectDomains(
     input.projectId,
     organizationId,
+    domainNames,
     domain,
   );
-  return mapProject(row);
+  return mapProject(updated, domainNames);
+}
+
+/** Replaces a profile's domain list and designates its primary domain. */
+export async function setProjectDomains(
+  organizationId: string,
+  input: { projectId: string; domains: string[]; primaryDomain?: string },
+) {
+  const domains = Array.from(
+    new Set(input.domains.map((domain) => normalizeProjectDomain(domain))),
+  ).filter((domain): domain is string => domain !== undefined);
+  const primaryDomain = input.primaryDomain
+    ? (normalizeProjectDomain(input.primaryDomain) ?? null)
+    : (domains[0] ?? null);
+
+  if (primaryDomain && !domains.includes(primaryDomain)) {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      "The primary domain must be in this profile's domain list.",
+    );
+  }
+
+  const row = await ProjectRepository.replaceProjectDomains(
+    input.projectId,
+    organizationId,
+    domains,
+    primaryDomain,
+  );
+  return mapProject(row, domains);
 }
 
 /**
@@ -200,7 +266,7 @@ export async function archiveProject(
 
 export async function listArchivedProjects(organizationId: string) {
   const rows = await ProjectRepository.listArchivedProjects(organizationId);
-  return rows.map(mapProject);
+  return rows.map((project) => mapProject(project));
 }
 
 export async function restoreProject(
