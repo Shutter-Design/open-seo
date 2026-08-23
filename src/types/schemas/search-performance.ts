@@ -20,6 +20,7 @@ export type SearchPerformanceDevice = (typeof GSC_DEVICES)[number];
 // and the paginated table calls always accept the exact same filter surface.
 const searchPerformanceFilterShape = {
   projectId: z.string().min(1),
+  domain: z.string().trim().min(1).max(255).optional(),
   dateRange: z.enum(SEARCH_PERFORMANCE_RANGES).default("last_28_days"),
   device: z.enum(GSC_DEVICES).optional(),
   // ISO-3166-1 alpha-3, the code GSC returns in `country` dimension keys.
@@ -33,6 +34,10 @@ const searchPerformanceFilterShape = {
 export const searchPerformanceInputSchema = z.object(
   searchPerformanceFilterShape,
 );
+
+export const searchPerformanceSearchSchema = z.object({
+  domain: z.string().trim().min(1).max(255).optional(),
+});
 
 /** The dimensions that get their own paginated table (query + page). Striking
  *  distance is computed from the overview call and never paginates. */

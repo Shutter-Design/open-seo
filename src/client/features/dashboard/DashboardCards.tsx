@@ -32,16 +32,18 @@ const issueTitles: Record<string, string | undefined> = Object.fromEntries(
 
 export function GscCard({
   projectId,
+  domain,
   connected,
 }: {
   projectId: string;
+  domain: string;
   connected: boolean;
 }) {
   const reportQuery = useQuery({
-    queryKey: ["dashboardGscReport", projectId],
+    queryKey: ["dashboardGscReport", projectId, domain],
     queryFn: () =>
       getSearchPerformanceReport({
-        data: { projectId, dateRange: "last_28_days" },
+        data: { projectId, domain, dateRange: "last_28_days" },
       }),
     enabled: connected,
   });
@@ -51,7 +53,7 @@ export function GscCard({
   if (!connected || (reportQuery.data && !reportQuery.data.connected)) {
     return (
       <div id="connect-gsc">
-        <SearchConsoleConnectionCard projectId={projectId} />
+        <SearchConsoleConnectionCard projectId={projectId} domain={domain} />
       </div>
     );
   }
@@ -66,6 +68,7 @@ export function GscCard({
         <Link
           to="/p/$projectId/search-performance"
           params={{ projectId }}
+          search={{ domain }}
           className={moreDetailsClass}
         >
           More details
@@ -117,9 +120,11 @@ export function GscCard({
 
 export function AuditHealthCard({
   projectId,
+  domain,
   audit,
 }: {
   projectId: string;
+  domain: string;
   audit: DashboardAuditSummary | null;
 }) {
   if (!audit) {
@@ -131,6 +136,7 @@ export function AuditHealthCard({
             <Link
               to="/p/$projectId/audit"
               params={{ projectId }}
+              search={{ domain }}
               className="btn btn-primary btn-sm"
             >
               Run an audit
@@ -155,6 +161,7 @@ export function AuditHealthCard({
         <Link
           to="/p/$projectId/audit"
           params={{ projectId }}
+          search={{ domain }}
           className={moreDetailsClass}
         >
           More details

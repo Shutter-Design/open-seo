@@ -14,9 +14,6 @@ import {
   BacklinkPulseCard,
   GscCard,
 } from "@/client/features/dashboard/DashboardCards";
-import { Ga4Card } from "@/client/features/dashboard/Ga4Card";
-import { McpConnectCard } from "@/client/features/dashboard/McpConnectCard";
-import { WorkspaceMergeBanner } from "@/client/features/dashboard/WorkspaceMergeBanner";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import type { DashboardActivation } from "@/server/features/dashboard/services/DashboardService";
 import {
@@ -26,6 +23,7 @@ import {
   refreshDashboardBacklinkSnapshot,
 } from "@/serverFunctions/dashboard";
 import { setProjectDomain } from "@/serverFunctions/projects";
+import { getProjects } from "@/serverFunctions/projects";
 import type { DashboardHeroStep } from "@/types/schemas/dashboard";
 
 const HERO_COPY: Record<
@@ -232,16 +230,42 @@ function OnboardingChecklist({
   );
 }
 
-export function DashboardPage({ projectId }: { projectId: string }) {
+export function DashboardPage({
+  projectId,
+  requestedDomain,
+}: {
+  projectId: string;
+  requestedDomain?: string;
+}) {
   const queryClient = useQueryClient();
+  const projectsQuery = useQuery({
+    queryKey: ["projects"],
+    queryFn: () => getProjects(),
+  });
+  const project = projectsQuery.data?.find((entry) => entry.id === projectId);
+  const domains = project?.domains ?? [];
+  const orderedDomains = project?.domain
+    ? [project.domain, ...domains.filter((domain) => domain !== project.domain)]
+    : domains;
+  const selectedDomain =
+    (requestedDomain && orderedDomains.includes(requestedDomain)
+      ? requestedDomain
+      : project?.domain) ??
+    orderedDomains[0] ??
+    null;
+  const dashboardInput = selectedDomain
+    ? { projectId, domain: selectedDomain }
+    : { projectId };
 
   const activationQuery = useQuery({
-    queryKey: ["dashboardActivation", projectId],
-    queryFn: () => getDashboardActivation({ data: { projectId } }),
+    queryKey: ["dashboardActivation", projectId, selectedDomain],
+    queryFn: () => getDashboardActivation({ data: dashboardInput }),
+    enabled: !projectsQuery.isPending,
   });
   const overviewQuery = useQuery({
-    queryKey: ["dashboardOverview", projectId],
-    queryFn: () => getDashboardOverview({ data: { projectId } }),
+    queryKey: ["dashboardOverview", projectId, selectedDomain],
+    queryFn: () => getDashboardOverview({ data: dashboardInput }),
+    enabled: !projectsQuery.isPending,
   });
 
   const activation = activationQuery.data;
@@ -251,13 +275,17 @@ export function DashboardPage({ projectId }: { projectId: string }) {
   // overview reports a missing or stale snapshot for a project with a domain.
   // The server re-checks freshness, so a stray double-fire costs nothing.
   const refreshMutation = useMutation({
-    mutationFn: () => refreshDashboardBacklinkSnapshot({ data: { projectId } }),
+    mutationFn: () =>
+      refreshDashboardBacklinkSnapshot({ data: dashboardInput }),
     onSuccess: () =>
       void queryClient.invalidateQueries({
         queryKey: ["dashboardOverview", projectId],
       }),
   });
   const refreshFiredRef = useRef(false);
+  useEffect(() => {
+    refreshFiredRef.current = false;
+  }, [selectedDomain]);
   const needsSnapshot =
     activation?.domain != null &&
     overview !== undefined &&
@@ -281,7 +309,7 @@ export function DashboardPage({ projectId }: { projectId: string }) {
   // Wait for the overview too: rendering cards from `overview === undefined`
   // flashes their empty states (and reshuffles the data-first sort) once the
   // real data lands. An overview error falls through so the page still loads.
-  if (!activation || overviewQuery.isPending) {
+  if (projectsQuery.isPending || !activation || overviewQuery.isPending) {
     return (
       <div
         className="mx-auto flex max-w-5xl flex-col gap-5 px-4 py-4 md:px-6 md:py-6"
@@ -299,83 +327,93 @@ export function DashboardPage({ projectId }: { projectId: string }) {
 
   const showBacklinks = activation.domain !== null;
   const gscConnected = activation.gsc.connected;
-  const ga4Connected = activation.ga4.connected;
+  const dashboardCards = selectedDomain
+    ? [
+        {
+          key: "gsc",
+          hasData: gscConnected,
+          node: (
+            <GscCard
+              projectId={projectId}
+              domain={selectedDomain}
+              connected={gscConnected}
+            />
+          ),
+        },
+        {
+          key: "audit",
+          hasData: overview?.audit != null,
+          node: (
+            <AuditHealthCard
+              projectId={projectId}
+              domain={selectedDomain}
+              audit={overview?.audit ?? null}
+            />
+          ),
+        },
+        ...(showBacklinks
+          ? [
+              {
+                key: "backlinks",
+                hasData:
+                  overview?.backlinks != null || refreshMutation.isPending,
+                node: (
+                  <BacklinkPulseCard
+                    projectId={projectId}
+                    backlinks={overview?.backlinks ?? null}
+                    refreshing={refreshMutation.isPending}
+                  />
+                ),
+              },
+            ]
+          : []),
+      ]
+    : [];
 
   return (
     <div className="px-4 py-4 pb-24 md:px-6 md:py-6 md:pb-8">
       <div className="mx-auto flex max-w-5xl flex-col gap-5">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
 
-        <WorkspaceMergeBanner />
+        {domains.length > 0 ? (
+          <div className="max-w-full overflow-x-auto">
+            <div
+              role="tablist"
+              aria-label="Domain dashboards"
+              className="tabs tabs-boxed w-max min-w-full bg-base-200 p-1"
+            >
+              {orderedDomains.map((domain) => (
+                <Link
+                  key={domain}
+                  to="/p/$projectId"
+                  params={{ projectId }}
+                  search={{ domain }}
+                  role="tab"
+                  aria-selected={domain === selectedDomain}
+                  className={`tab whitespace-nowrap ${
+                    domain === selectedDomain ? "tab-active" : ""
+                  }`}
+                >
+                  {domain}
+                </Link>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
-        <OnboardingChecklist projectId={projectId} activation={activation} />
+        {domains.length === 0 ? (
+          <OnboardingChecklist projectId={projectId} activation={activation} />
+        ) : null}
 
         {/* Every card is half width on large screens (only the checklist spans).
           Cards with data render before setup pitches and empty states. */}
         <div className="grid items-start gap-5 lg:grid-cols-2">
-          {[
-            // Array order is the within-bucket order after the data-first sort:
-            // the MCP pitch leads the setup cards.
-            ...(activation.mcp.firstToolCallAt || activation.mcp.cardDismissedAt
-              ? []
-              : [
-                  {
-                    key: "mcp",
-                    hasData: false,
-                    node: (
-                      <McpConnectCard
-                        projectId={projectId}
-                        activation={activation}
-                      />
-                    ),
-                  },
-                ]),
-            {
-              key: "gsc",
-              hasData: gscConnected,
-              node: <GscCard projectId={projectId} connected={gscConnected} />,
-            },
-            ...(ga4Connected || !activation.ga4.cardDismissedAt
-              ? [
-                  {
-                    key: "ga4",
-                    hasData: ga4Connected,
-                    node: (
-                      <Ga4Card projectId={projectId} connected={ga4Connected} />
-                    ),
-                  },
-                ]
-              : []),
-            {
-              key: "audit",
-              hasData: overview?.audit != null,
-              node: (
-                <AuditHealthCard
-                  projectId={projectId}
-                  audit={overview?.audit ?? null}
-                />
-              ),
-            },
-            ...(showBacklinks
-              ? [
-                  {
-                    key: "backlinks",
-                    hasData:
-                      overview?.backlinks != null || refreshMutation.isPending,
-                    node: (
-                      <BacklinkPulseCard
-                        projectId={projectId}
-                        backlinks={overview?.backlinks ?? null}
-                        refreshing={refreshMutation.isPending}
-                      />
-                    ),
-                  },
-                ]
-              : []),
-          ]
+          {dashboardCards
             .toSorted((a, b) => Number(b.hasData) - Number(a.hasData))
             .map((card) => (
-              <div key={card.key}>{card.node}</div>
+              <div key={card.key} className="min-w-0">
+                {card.node}
+              </div>
             ))}
         </div>
       </div>

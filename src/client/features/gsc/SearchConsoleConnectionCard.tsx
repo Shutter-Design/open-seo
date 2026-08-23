@@ -24,8 +24,10 @@ const GRANT_STATUS_KEY = ["gscGrantStatus"];
 
 export function SearchConsoleConnectionCard({
   projectId,
+  domain: selectedDomain,
 }: {
   projectId: string;
+  domain?: string;
 }) {
   const hosted = isHostedClientAuthMode();
   const queryClient = useQueryClient();
@@ -34,10 +36,16 @@ export function SearchConsoleConnectionCard({
     null,
   );
 
-  const connectionKey = ["gscConnection", projectId];
+  const connectionKey = ["gscConnection", projectId, selectedDomain];
   const connectionQuery = useQuery({
     queryKey: connectionKey,
-    queryFn: () => getGscConnection({ data: { projectId } }),
+    queryFn: () =>
+      getGscConnection({
+        data: {
+          projectId,
+          ...(selectedDomain ? { domain: selectedDomain } : {}),
+        },
+      }),
   });
   const connection = connectionQuery.data;
   const connected = Boolean(connection?.connected);

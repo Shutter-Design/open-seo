@@ -227,12 +227,14 @@ describe("GscService.listSitesForUserWithGrantStatus", () => {
           accountId: "sub-a",
           email: "sub-a@example.com",
           requiresReconnect: false,
+          sitesUnavailable: false,
           sites: [{ siteUrl: "https://x.com/", permissionLevel: "siteOwner" }],
         },
         {
           accountId: "sub-b",
           email: null,
           requiresReconnect: true,
+          sitesUnavailable: false,
           sites: [],
         },
       ],
@@ -259,18 +261,22 @@ describe("GscService.listSitesForUserWithGrantStatus", () => {
           accountId: "sub-a",
           email: null,
           requiresReconnect: false,
+          sitesUnavailable: false,
           sites: [{ siteUrl: "https://x.com/", permissionLevel: "siteOwner" }],
         },
       ],
     });
   });
 
-  it("marks a grant for reconnect on a GSC 403 without deleting it", async () => {
+  it("reports a GSC 403 as unavailable instead of an expired grant", async () => {
     mocks.state.selectRows = [{ id: "grant-a", accountId: "sub-a" }];
     mocks.getUserInfoEmail.mockResolvedValue("a@example.com");
     mocks.listSites.mockRejectedValue(
       new GscApiError(403, "Search Console denied access"),
     );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
 
     await expect(
       GscService.listSitesForUserWithGrantStatus("u1"),
@@ -279,13 +285,19 @@ describe("GscService.listSitesForUserWithGrantStatus", () => {
         {
           accountId: "sub-a",
           email: null,
-          requiresReconnect: true,
+          requiresReconnect: false,
+          sitesUnavailable: true,
           sites: [],
         },
       ],
     });
     expect(mocks.getUserInfoEmail).not.toHaveBeenCalled();
     expect(mocks.dbDelete).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith("gsc.site_discovery_failed", {
+      errorName: "GscApiError",
+      status: 403,
+    });
+    consoleError.mockRestore();
   });
 
   it("keeps non-auth GSC API errors reportable", async () => {
@@ -312,21 +324,22 @@ describe("GscService.listSitesForUserWithGrantStatus", () => {
           accountId: "sub-a",
           email: "sub-a@example.com",
           requiresReconnect: false,
+          sitesUnavailable: false,
           sites: [{ siteUrl: "https://x.com/", permissionLevel: "siteOwner" }],
         },
         {
           accountId: "sub-b",
           email: null,
-          requiresReconnect: true,
+          requiresReconnect: false,
+          sitesUnavailable: true,
           sites: [],
         },
       ],
     });
-    expect(consoleError).toHaveBeenCalledWith(
-      "Failed to list Search Console sites for account",
-      "sub-b",
-      rateLimit,
-    );
+    expect(consoleError).toHaveBeenCalledWith("gsc.site_discovery_failed", {
+      errorName: "GscApiError",
+      status: 429,
+    });
     expect(mocks.dbDelete).not.toHaveBeenCalled();
     consoleError.mockRestore();
   });
@@ -426,6 +439,37 @@ describe("GscService.getPerformance", () => {
         position: 7,
       },
     ]);
+  });
+
+  it("uses only the selected domain's property", async () => {
+    mocks.listByProjectId.mockResolvedValue([
+      {
+        connectedByUserId: "u1",
+        gscAccountId: "sub-a",
+        domain: "x.com",
+        siteUrl: "https://x.com/",
+      },
+      {
+        connectedByUserId: "u1",
+        gscAccountId: "sub-b",
+        domain: "y.com",
+        siteUrl: "https://y.com/",
+      },
+    ]);
+
+    const result = await GscService.getPerformance({
+      projectId: "p1",
+      domain: "y.com",
+      startDate: "2026-01-01",
+      endDate: "2026-01-31",
+    });
+
+    expect(mocks.createGscClient).toHaveBeenCalledTimes(1);
+    expect(mocks.createGscClient).toHaveBeenCalledWith({
+      userId: "u1",
+      gscAccountId: "sub-b",
+    });
+    expect(result.siteUrls).toEqual(["https://y.com/"]);
   });
 });
 

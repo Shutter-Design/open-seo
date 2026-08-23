@@ -64,8 +64,8 @@ export const getAuditResults = createServerFn({ method: "POST" })
 export const getAuditHistory = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(getAuditHistorySchema)
-  .handler(async ({ context }) => {
-    return AuditService.getHistory(context.projectId);
+  .handler(async ({ data, context }) => {
+    return AuditService.getHistory(context.projectId, data.domain);
   });
 
 export const getCrawlProgress = createServerFn({ method: "POST" })

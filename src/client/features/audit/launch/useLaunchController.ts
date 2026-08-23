@@ -39,17 +39,25 @@ function getLaunchValidationErrors(
 
 export function useLaunchController({
   projectId,
+  initialDomain,
   isFreePlan,
   onAuditStarted,
 }: {
   projectId: string;
+  initialDomain?: string;
   isFreePlan: boolean;
   onAuditStarted: (auditId: string) => void;
 }) {
   const maxPagesLimit = getMaxPagesLimit(isFreePlan);
   const historyQuery = useQuery({
-    queryKey: ["audit-history", projectId],
-    queryFn: () => getAuditHistory({ data: { projectId } }),
+    queryKey: ["audit-history", projectId, initialDomain],
+    queryFn: () =>
+      getAuditHistory({
+        data: {
+          projectId,
+          ...(initialDomain ? { domain: initialDomain } : {}),
+        },
+      }),
   });
   const { startMutation, deleteMutation } = useLaunchMutations({
     projectId,
@@ -57,7 +65,10 @@ export function useLaunchController({
   });
 
   const launchForm = useForm({
-    defaultValues: DEFAULT_LAUNCH_FORM_VALUES,
+    defaultValues: {
+      ...DEFAULT_LAUNCH_FORM_VALUES,
+      ...(initialDomain ? { url: `https://${initialDomain}` } : {}),
+    },
     validators: {
       onChange: ({ formApi, value }) =>
         getLaunchValidationErrors(

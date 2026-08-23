@@ -16,6 +16,23 @@ async function getByProjectId(
   return rows[0] ?? null;
 }
 
+async function getByProjectDomain(
+  projectId: string,
+  domain: string,
+): Promise<GscConnection | null> {
+  const rows = await db
+    .select()
+    .from(gscConnections)
+    .where(
+      and(
+        eq(gscConnections.projectId, projectId),
+        eq(gscConnections.domain, domain),
+      ),
+    )
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 async function listByProjectId(projectId: string): Promise<GscConnection[]> {
   return db
     .select()
@@ -87,6 +104,7 @@ async function existsForConnectorAccount(
 
 export const GscConnectionRepository = {
   getByProjectId,
+  getByProjectDomain,
   listByProjectId,
   upsert,
   deleteByProjectDomain,

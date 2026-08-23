@@ -1,27 +1,54 @@
 import { createServerFn } from "@tanstack/react-start";
 import { ActivationRepository } from "@/server/features/activation/repositories/ActivationRepository";
 import { DashboardService } from "@/server/features/dashboard/services/DashboardService";
+import { ProjectRepository } from "@/server/features/projects/repositories/ProjectRepository";
+import { AppError } from "@/server/lib/errors";
 import { requireProjectContext } from "@/serverFunctions/middleware";
 import { dashboardProjectInputSchema } from "@/types/schemas/dashboard";
+
+async function resolveDashboardDomain(
+  projectId: string,
+  primaryDomain: string | null,
+  requestedDomain: string | undefined,
+): Promise<string | null> {
+  if (!requestedDomain) return primaryDomain;
+
+  const domains = await ProjectRepository.listDomainsForProject(projectId);
+  if (!domains.some((entry) => entry.domain === requestedDomain)) {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      "That domain is not in this profile.",
+    );
+  }
+  return requestedDomain;
+}
 
 export const getDashboardActivation = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(dashboardProjectInputSchema)
-  .handler(({ context }) =>
+  .handler(async ({ data, context }) =>
     DashboardService.getActivation({
       projectId: context.projectId,
       organizationId: context.organizationId,
-      domain: context.project.domain,
+      domain: await resolveDashboardDomain(
+        context.projectId,
+        context.project.domain,
+        data.domain,
+      ),
     }),
   );
 
 export const getDashboardOverview = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
   .validator(dashboardProjectInputSchema)
-  .handler(({ context }) =>
+  .handler(async ({ data, context }) =>
     DashboardService.getOverview({
       projectId: context.projectId,
-      domain: context.project.domain,
+      domain: await resolveDashboardDomain(
+        context.projectId,
+        context.project.domain,
+        data.domain,
+      ),
     }),
   );
 
@@ -33,10 +60,14 @@ export const refreshDashboardBacklinkSnapshot = createServerFn({
 })
   .middleware(requireProjectContext)
   .validator(dashboardProjectInputSchema)
-  .handler(({ context }) =>
+  .handler(async ({ data, context }) =>
     DashboardService.ensureBacklinkSnapshot({
       projectId: context.projectId,
-      domain: context.project.domain,
+      domain: await resolveDashboardDomain(
+        context.projectId,
+        context.project.domain,
+        data.domain,
+      ),
       billingCustomer: context,
     }),
   );

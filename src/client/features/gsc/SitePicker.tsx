@@ -12,6 +12,7 @@ type AccountOption = {
   accountId: string;
   email: string | null;
   requiresReconnect: boolean;
+  sitesUnavailable: boolean;
   sites: SiteOption[];
 };
 
@@ -96,6 +97,31 @@ export function SitePicker({
         >
           <GoogleGlyph className="size-[18px]" />
           Reconnect with Google
+        </button>
+      </div>
+    );
+  }
+
+  const noAccountCanListSites =
+    accounts.length > 0 &&
+    accounts.every(
+      (account) => account.requiresReconnect || account.sitesUnavailable,
+    );
+  if (noAccountCanListSites) {
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-error">
+          Google accepted the connection, but couldn&rsquo;t list its Search
+          Console properties. Check that the Search Console API is enabled for
+          this Google Cloud project and that this Google account can access a
+          verified property.
+        </p>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={onRetry}
+        >
+          Try again
         </button>
       </div>
     );

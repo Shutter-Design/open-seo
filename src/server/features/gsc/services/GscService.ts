@@ -46,6 +46,7 @@ type GscSiteListResult = {
     accountId: string;
     email: string | null;
     requiresReconnect: boolean;
+    sitesUnavailable: boolean;
     sites: GscSite[];
   }>;
 };
@@ -103,12 +104,19 @@ async function listGrantsForUser(userId: string) {
 
 /** Expected ways a stored grant fails to reach Search Console: no token could be
  *  minted (refresh token revoked or expired), or Google rejected the call
- *  (401/403). These surface a reconnect prompt without fault logging. */
+ *  (401/403). Search Performance renders its connection card for these cases. */
 export function isExpectedGrantFailure(error: unknown): boolean {
   if (error instanceof GscTokenError) return true;
   return (
     error instanceof GscApiError &&
     (error.status === 401 || error.status === 403)
+  );
+}
+
+function requiresReconnect(error: unknown): boolean {
+  return (
+    error instanceof GscTokenError ||
+    (error instanceof GscApiError && error.status === 401)
   );
 }
 
@@ -135,20 +143,22 @@ async function listSitesForUserWithGrantStatus(
           accountId: grant.accountId,
           email,
           requiresReconnect: false,
+          sitesUnavailable: false,
           sites,
         };
       } catch (error) {
-        if (!isExpectedGrantFailure(error)) {
-          console.error(
-            "Failed to list Search Console sites for account",
-            grant.accountId,
-            error,
-          );
+        const reconnect = requiresReconnect(error);
+        if (!reconnect) {
+          console.error("gsc.site_discovery_failed", {
+            errorName: error instanceof Error ? error.name : "UnknownError",
+            status: error instanceof GscApiError ? error.status : undefined,
+          });
         }
         return {
           accountId: grant.accountId,
           email: null,
-          requiresReconnect: true,
+          requiresReconnect: reconnect,
+          sitesUnavailable: !reconnect,
           sites: [],
         };
       }
@@ -265,9 +275,12 @@ async function disconnect(input: {
 async function getPerformance(
   input: GscPerformanceInput,
 ): Promise<GscPerformanceResult> {
-  const connections = await GscConnectionRepository.listByProjectId(
+  const allConnections = await GscConnectionRepository.listByProjectId(
     input.projectId,
   );
+  const connections = input.domain
+    ? allConnections.filter((connection) => connection.domain === input.domain)
+    : allConnections;
   if (connections.length === 0) {
     throw new GscNotConnectedError(input.projectId);
   }

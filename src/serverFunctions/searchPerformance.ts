@@ -77,6 +77,7 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
       const [current, previous, queryPages, countries] = await Promise.all([
         GscService.getPerformance({
           projectId,
+          domain: data.domain,
           startDate,
           endDate,
           dimensions: ["date"],
@@ -85,6 +86,7 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
         }),
         GscService.getPerformance({
           projectId,
+          domain: data.domain,
           startDate: prev.startDate,
           endDate: prev.endDate,
           dimensions: ["date"],
@@ -93,6 +95,7 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
         }),
         GscService.getPerformance({
           projectId,
+          domain: data.domain,
           startDate,
           endDate,
           dimensions: ["query", "page"],
@@ -101,6 +104,7 @@ export const getSearchPerformanceReport = createServerFn({ method: "POST" })
         }),
         GscService.getPerformance({
           projectId,
+          domain: data.domain,
           startDate,
           endDate,
           dimensions: ["country"],
@@ -148,6 +152,7 @@ export const getSearchPerformanceTable = createServerFn({ method: "POST" })
     try {
       const result = await GscService.getPerformance({
         projectId: context.projectId,
+        domain: data.domain,
         startDate,
         endDate,
         dimensions: [data.dimension],
@@ -192,6 +197,7 @@ export const exportSearchPerformanceTable = createServerFn({ method: "POST" })
 
     const result = await GscService.getPerformance({
       projectId: context.projectId,
+      domain: data.domain,
       startDate,
       endDate,
       dimensions: [data.dimension],

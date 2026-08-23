@@ -53,6 +53,8 @@ export type GscPerformanceFilter = {
 
 export type GscPerformanceInput = {
   projectId: string;
+  /** Limits a multi-domain profile to its matching GSC property. */
+  domain?: string;
   dimensions?: GscDimension[];
   dateRange?: GscDateRange;
   startDate?: string;

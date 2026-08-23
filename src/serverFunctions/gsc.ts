@@ -17,6 +17,9 @@ import {
 } from "@/serverFunctions/middleware";
 
 const projectScopedSchema = z.object({ projectId: z.string().min(1) });
+const getConnectionSchema = projectScopedSchema.extend({
+  domain: z.string().min(1).optional(),
+});
 const setSiteSchema = projectScopedSchema.extend({
   accountId: z.string().min(1),
   siteUrl: z.string().min(1),
@@ -39,8 +42,8 @@ export const getGscGrantStatus = createServerFn({ method: "GET" })
 
 export const getGscConnection = createServerFn({ method: "POST" })
   .middleware(requireProjectContext)
-  .validator(projectScopedSchema)
-  .handler(async ({ context }) => {
+  .validator(getConnectionSchema)
+  .handler(async ({ data, context }) => {
     const [connections, currentUserHasGrant, hosted, gscConfigured] =
       await Promise.all([
         GscService.getConnections(context.projectId),
@@ -48,14 +51,17 @@ export const getGscConnection = createServerFn({ method: "POST" })
         isHostedServerAuthMode(),
         hasSelfHostedGoogleOAuthConfig(),
       ]);
+    const scopedConnections = data.domain
+      ? connections.filter((connection) => connection.domain === data.domain)
+      : connections;
     return {
-      connected: connections.length > 0,
+      connected: scopedConnections.length > 0,
       currentUserHasGrant,
       googleOAuthConfigured: hosted || gscConfigured,
-      siteUrl: connections[0]?.siteUrl ?? null,
-      connectedByEmail: connections[0]?.connectedAccountEmail ?? null,
-      connectedAt: connections[0]?.createdAt ?? null,
-      connections: connections.map((connection) => ({
+      siteUrl: scopedConnections[0]?.siteUrl ?? null,
+      connectedByEmail: scopedConnections[0]?.connectedAccountEmail ?? null,
+      connectedAt: scopedConnections[0]?.createdAt ?? null,
+      connections: scopedConnections.map((connection) => ({
         domain: connection.domain,
         siteUrl: connection.siteUrl,
         connectedByEmail: connection.connectedAccountEmail,
@@ -83,6 +89,7 @@ export const listGscSites = createServerFn({ method: "POST" })
         accountId: grant.accountId,
         email: grant.email,
         requiresReconnect: grant.requiresReconnect,
+        sitesUnavailable: grant.sitesUnavailable,
         sites: grant.sites.map((site) => {
           const isSelected =
             selectedProperties.has(`${grant.accountId}:${site.siteUrl}`) ||

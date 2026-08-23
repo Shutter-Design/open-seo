@@ -32,6 +32,7 @@ export const getAuditResultsSchema = z.object({
 
 export const getAuditHistorySchema = z.object({
   projectId: z.string().min(1),
+  domain: z.string().trim().min(1).max(255).optional(),
 });
 
 export const deleteAuditSchema = z.object({
@@ -51,4 +52,5 @@ const auditTabs = ["issues", "pages", "performance"] as const;
 export const auditSearchSchema = z.object({
   auditId: z.string().optional().catch(undefined),
   tab: z.enum(auditTabs).catch("issues").default("issues"),
+  domain: z.string().trim().min(1).max(255).optional(),
 });

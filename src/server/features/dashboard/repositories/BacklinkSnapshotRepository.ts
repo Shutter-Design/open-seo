@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { backlinkSnapshots } from "@/db/schema";
 
@@ -18,6 +18,26 @@ async function getLatestForProject(
   return rows[0] ?? null;
 }
 
+async function getLatestForProjectDomain(
+  projectId: string,
+  domain: string,
+): Promise<BacklinkSnapshot | null> {
+  const rows = await db
+    .select()
+    .from(backlinkSnapshots)
+    .where(
+      and(
+        eq(backlinkSnapshots.projectId, projectId),
+        eq(backlinkSnapshots.domain, domain),
+      ),
+    )
+    // id, not capturedAt: autoincrement is monotonic and immune to the
+    // sqlite-vs-pg timestamp text-format difference.
+    .orderBy(desc(backlinkSnapshots.id))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 async function insert(
   values: typeof backlinkSnapshots.$inferInsert,
 ): Promise<BacklinkSnapshot> {
@@ -30,5 +50,6 @@ async function insert(
 
 export const BacklinkSnapshotRepository = {
   getLatestForProject,
+  getLatestForProjectDomain,
   insert,
 };

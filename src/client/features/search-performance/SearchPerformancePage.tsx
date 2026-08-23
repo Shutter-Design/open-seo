@@ -74,6 +74,7 @@ function tabDimension(tab: Tab): SearchPerformanceTableDimension {
 }
 
 type FilterInput = {
+  domain?: string;
   dateRange: SearchPerformanceDateRange;
   device?: SearchPerformanceDevice;
   country?: string;
@@ -117,7 +118,13 @@ function tableQueryOptions(
   });
 }
 
-export function SearchPerformancePage({ projectId }: { projectId: string }) {
+export function SearchPerformancePage({
+  projectId,
+  domain,
+}: {
+  projectId: string;
+  domain?: string;
+}) {
   const queryClient = useQueryClient();
   const [range, setRange] =
     useState<SearchPerformanceDateRange>("last_28_days");
@@ -136,10 +143,13 @@ export function SearchPerformancePage({ projectId }: { projectId: string }) {
     setPage(1);
   }, [tab, range, device, country, pageSize]);
 
-  const filterInput = buildFilterInput(range, device, country);
+  const filterInput = {
+    ...buildFilterInput(range, device, country),
+    ...(domain ? { domain } : {}),
+  };
 
   const reportQuery = useQuery({
-    queryKey: ["searchPerformance", projectId, range, device, country],
+    queryKey: ["searchPerformance", projectId, domain, range, device, country],
     queryFn: () =>
       getSearchPerformanceReport({ data: { projectId, ...filterInput } }),
     placeholderData: keepPreviousData,

@@ -82,7 +82,12 @@ async function getActivation(input: {
 }): Promise<DashboardActivation> {
   const [ga4, gsc, orgActivation, projectActivation] = await Promise.all([
     Ga4ConnectionRepository.getByProjectId(input.projectId),
-    GscConnectionRepository.getByProjectId(input.projectId),
+    input.domain
+      ? GscConnectionRepository.getByProjectDomain(
+          input.projectId,
+          input.domain,
+        )
+      : GscConnectionRepository.getByProjectId(input.projectId),
     ActivationRepository.getOrganizationActivation(input.organizationId),
     ActivationRepository.getProjectActivation(input.projectId),
   ]);
@@ -109,8 +114,8 @@ async function getOverview(input: {
   domain: string | null;
 }): Promise<DashboardOverview> {
   const [rank, audit, backlinks] = await Promise.all([
-    getRankSummary(input.projectId),
-    getAuditSummary(input.projectId),
+    getRankSummary(input.projectId, input.domain),
+    getAuditSummary(input.projectId, input.domain),
     getBacklinkSummary(input.projectId, input.domain),
   ]);
   return { rank, audit, backlinks };
@@ -118,8 +123,11 @@ async function getOverview(input: {
 
 async function getRankSummary(
   projectId: string,
+  domain: string | null,
 ): Promise<DashboardRankSummary | null> {
-  const configs = await RankTrackingRepository.getConfigsForProject(projectId);
+  const configs = (
+    await RankTrackingRepository.getConfigsForProject(projectId)
+  ).filter((config) => domain === null || config.domain === domain);
   if (configs.length === 0) return null;
 
   const results = await Promise.all(
@@ -162,8 +170,18 @@ async function getRankSummary(
 
 async function getAuditSummary(
   projectId: string,
+  domain: string | null,
 ): Promise<DashboardAuditSummary | null> {
-  const audit = await AuditRepository.getLatestAuditForProject(projectId);
+  const audit = domain
+    ? (await AuditRepository.getAuditsByProject(projectId)).find((entry) => {
+        try {
+          const hostname = new URL(entry.startUrl).hostname.toLowerCase();
+          return hostname === domain || hostname === `www.${domain}`;
+        } catch {
+          return false;
+        }
+      })
+    : await AuditRepository.getLatestAuditForProject(projectId);
   if (!audit) return null;
 
   const typeRows = await getIssueTypePageCountsForAudit(audit.id);
@@ -201,9 +219,11 @@ async function getBacklinkSummary(
   domain: string | null,
 ): Promise<DashboardBacklinkSummary | null> {
   if (!domain) return null;
-  const snapshot =
-    await BacklinkSnapshotRepository.getLatestForProject(projectId);
-  if (!snapshot || snapshot.domain !== domain) return null;
+  const snapshot = await BacklinkSnapshotRepository.getLatestForProjectDomain(
+    projectId,
+    domain,
+  );
+  if (!snapshot) return null;
   return {
     domain: snapshot.domain,
     rank: snapshot.rank,
@@ -236,10 +256,11 @@ async function ensureBacklinkSnapshot(input: {
   const { projectId, domain } = input;
   if (!domain) return null;
 
-  const latest =
-    await BacklinkSnapshotRepository.getLatestForProject(projectId);
-  const latestMatchesDomain = latest !== null && latest.domain === domain;
-  if (latest && latestMatchesDomain && isSnapshotFresh(latest.capturedAt)) {
+  const latest = await BacklinkSnapshotRepository.getLatestForProjectDomain(
+    projectId,
+    domain,
+  );
+  if (latest && isSnapshotFresh(latest.capturedAt)) {
     return getBacklinkSummary(projectId, domain);
   }
 
@@ -270,7 +291,7 @@ async function ensureBacklinkSnapshot(input: {
       capturedAt: new Date().toISOString(),
     });
   } catch (error) {
-    if (latestMatchesDomain) {
+    if (latest) {
       console.error("dashboard: backlink snapshot refresh failed", error);
       return getBacklinkSummary(projectId, domain);
     }

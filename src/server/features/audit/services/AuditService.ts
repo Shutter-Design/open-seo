@@ -189,8 +189,19 @@ async function getResults(auditId: string, projectId: string) {
   };
 }
 
-async function getHistory(projectId: string) {
-  const auditList = await AuditRepository.getAuditsByProject(projectId);
+function isAuditForDomain(startUrl: string, domain: string): boolean {
+  try {
+    const hostname = new URL(startUrl).hostname.toLowerCase();
+    return hostname === domain || hostname === `www.${domain}`;
+  } catch {
+    return false;
+  }
+}
+
+async function getHistory(projectId: string, domain?: string) {
+  const auditList = (
+    await AuditRepository.getAuditsByProject(projectId)
+  ).filter((audit) => !domain || isAuditForDomain(audit.startUrl, domain));
 
   return auditList.map((audit) => {
     const parsedConfig = parseAuditConfig(audit.config);
