@@ -7,8 +7,6 @@ loadLocalEnv();
 
 const args = parseArgs(process.argv.slice(2));
 
-await main();
-
 /**
  * Inspect real DataForSEO account spend via the FREE GET
  * /v3/appendix/user_data endpoint. Unlike the other billing:* scripts, this
@@ -67,6 +65,8 @@ const FUNCTION_TOTALS: ReadonlyArray<{ label: string; key: string }> = [
   { label: "content_generation", key: "total_content_generation" },
   { label: "appendix", key: "total_appendix" },
 ];
+
+await main();
 
 function printFunctionTable(
   heading: string,
