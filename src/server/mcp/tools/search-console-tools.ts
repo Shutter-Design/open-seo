@@ -125,6 +125,14 @@ const filterSchema = z.object({
 
 const perfInputSchema = {
   projectId: projectIdSchema,
+  domain: z
+    .string()
+    .min(1)
+    .max(255)
+    .optional()
+    .describe(
+      "Optional bare domain for a multi-domain project, e.g. 'example.com'. Limits the report to that domain's connected Search Console property instead of aggregating every connected domain.",
+    ),
   dimensions: z
     .array(z.enum(GSC_DIMENSIONS))
     .min(1)

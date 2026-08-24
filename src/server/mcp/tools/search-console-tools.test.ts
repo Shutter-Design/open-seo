@@ -66,6 +66,7 @@ describe("search console MCP tools", () => {
     const result = await getSearchConsolePerformanceTool.handler(
       {
         projectId: "project_1",
+        domain: "example.com",
         dimensions: ["query"],
         filters: [
           {
@@ -81,6 +82,7 @@ describe("search console MCP tools", () => {
     expect(mocks.GscService.getPerformance).toHaveBeenCalledWith(
       expect.objectContaining({
         projectId: "project_1",
+        domain: "example.com",
         filters: [
           {
             dimension: "page",
