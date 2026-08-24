@@ -5,6 +5,7 @@ vi.mock("@/server/lib/runtime-env", () => ({
 }));
 
 import {
+  fetchLiveSerp,
   fetchRankCheckTaskResult,
   postRankCheckTasks,
 } from "@/server/lib/dataforseo/serp";
@@ -173,5 +174,89 @@ describe("rank check task queue", () => {
         serpFeatures: ["organic"],
       },
     });
+  });
+});
+
+describe("live organic SERPs", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("uses a city location and mobile top-10 depth when supplied", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        status_code: 20000,
+        tasks: [
+          {
+            status_code: 20000,
+            cost: 0.002,
+            path: ["v3", "serp", "google", "organic", "live", "advanced"],
+            result: [{ items: [] }],
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchLiveSerp({
+      keyword: "plantation shutters",
+      locationCode: 2826,
+      locationName: "Kingston upon Thames,England,United Kingdom",
+      languageCode: "en",
+      device: "mobile",
+      depth: 10,
+    });
+
+    expect(
+      parseDataforseoRequestBody(fetchMock.mock.calls[0]?.[1]),
+    ).toMatchObject([
+      {
+        keyword: "plantation shutters",
+        location_name: "Kingston upon Thames,England,United Kingdom",
+        language_code: "en",
+        device: "mobile",
+        os: "android",
+        depth: 10,
+      },
+    ]);
+  });
+
+  it("uses exact coordinates instead of a location name when supplied", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        status_code: 20000,
+        tasks: [
+          {
+            status_code: 20000,
+            cost: 0.002,
+            path: ["v3", "serp", "google", "organic", "live", "advanced"],
+            result: [{ items: [] }],
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchLiveSerp({
+      keyword: "plantation shutters",
+      locationCode: 2826,
+      locationCoordinate: "51.4123,-0.3007,1000",
+      languageCode: "en",
+      device: "mobile",
+      depth: 10,
+    });
+
+    expect(
+      parseDataforseoRequestBody(fetchMock.mock.calls[0]?.[1]),
+    ).toMatchObject([
+      {
+        keyword: "plantation shutters",
+        location_coordinate: "51.4123,-0.3007,1000",
+        language_code: "en",
+        device: "mobile",
+        os: "android",
+        depth: 10,
+      },
+    ]);
   });
 });

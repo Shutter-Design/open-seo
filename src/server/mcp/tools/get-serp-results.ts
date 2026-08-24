@@ -21,6 +21,13 @@ type SerpItem = {
   description: string | null;
 };
 
+const locationCoordinateSchema = z
+  .string()
+  .regex(
+    /^-?\d{1,2}(?:\.\d{1,7})?,-?\d{1,3}(?:\.\d{1,7})?,\d{3,6}$/,
+    "Use latitude,longitude,radius in metres, for example 51.4123,-0.3007,1000.",
+  );
+
 const SERP_ITEM_COLUMNS: McpTableColumn<SerpItem>[] = [
   { header: "rank", value: (item) => item.rank },
   { header: "domain", value: (item) => item.domain },
@@ -28,11 +35,36 @@ const SERP_ITEM_COLUMNS: McpTableColumn<SerpItem>[] = [
   { header: "url", value: (item) => item.url },
 ];
 
-const querySchema = z.object({
-  keyword: z.string().min(1).describe("Search query to fetch the SERP for."),
-  locationCode: locationCodeSchema.optional(),
-  languageCode: languageCodeSchema.optional(),
-});
+const querySchema = z
+  .object({
+    keyword: z.string().min(1).describe("Search query to fetch the SERP for."),
+    locationCode: locationCodeSchema.optional(),
+    languageCode: languageCodeSchema.optional(),
+    locationName: z
+      .string()
+      .trim()
+      .min(1)
+      .max(300)
+      .optional()
+      .describe(
+        "Canonical DataForSEO city or region location_name. When supplied, OpenSEO fetches a mobile top-10 local SERP instead of the standard country-level result.",
+      ),
+    locationCoordinate: locationCoordinateSchema
+      .optional()
+      .describe(
+        "Exact latitude,longitude,radius in metres for a local SERP. Use this instead of locationName when a town name is ambiguous.",
+      ),
+    device: z
+      .enum(["desktop", "mobile"])
+      .optional()
+      .describe(
+        "Device for a local query. Defaults to mobile. Ignored for country-level queries.",
+      ),
+  })
+  .refine(
+    (query) => !(query.locationName && query.locationCoordinate),
+    "Use locationName or locationCoordinate, not both.",
+  );
 
 const inputSchema = {
   projectId: projectIdSchema,
@@ -61,6 +93,10 @@ export const getSerpResultsTool = {
             .object({
               keyword: z.string(),
               ok: z.literal(true),
+              location_name: z.string().optional(),
+              location_coordinate: z.string().optional(),
+              device: z.enum(["desktop", "mobile"]).optional(),
+              depth: z.literal(10).optional(),
               items: z.array(
                 z
                   .object({
@@ -97,9 +133,21 @@ export const getSerpResultsTool = {
     const results = await Promise.all(
       args.queries.map(async (q) => {
         try {
+          const localOptions =
+            q.locationName || q.locationCoordinate
+              ? {
+                  ...(q.locationName ? { locationName: q.locationName } : {}),
+                  ...(q.locationCoordinate
+                    ? { locationCoordinate: q.locationCoordinate }
+                    : {}),
+                  device: q.device ?? "mobile",
+                  depth: 10,
+                }
+              : {};
           const items = await client.serp.live({
             keyword: q.keyword,
             ...resolveMarket(q, context.project),
+            ...localOptions,
           });
           // Trim noise — return only essentials per item.
           const trimmed = items.slice(0, 20).map((item) => ({
@@ -110,7 +158,21 @@ export const getSerpResultsTool = {
             domain: item.domain ?? null,
             description: item.description ?? null,
           }));
-          return { keyword: q.keyword, ok: true as const, items: trimmed };
+          return {
+            keyword: q.keyword,
+            ok: true as const,
+            ...(q.locationName || q.locationCoordinate
+              ? {
+                  ...(q.locationName ? { location_name: q.locationName } : {}),
+                  ...(q.locationCoordinate
+                    ? { location_coordinate: q.locationCoordinate }
+                    : {}),
+                  device: q.device ?? "mobile",
+                  depth: 10 as const,
+                }
+              : {}),
+            items: trimmed,
+          };
         } catch (error) {
           return {
             keyword: q.keyword,
@@ -131,7 +193,11 @@ export const getSerpResultsTool = {
           if (r.items.length === 0) {
             return `"${r.keyword}" (0 results)`;
           }
-          return `"${r.keyword}" (${r.items.length} results):\n${formatMcpTable(r.items, SERP_ITEM_COLUMNS)}`;
+          const location = r.location_name ?? r.location_coordinate;
+          const scope = location
+            ? ` in ${location} (${r.device}, top ${r.depth})`
+            : "";
+          return `"${r.keyword}"${scope} (${r.items.length} results):\n${formatMcpTable(r.items, SERP_ITEM_COLUMNS)}`;
         })
         .join("\n\n") +
       `\n\n${okCount} of ${results.length} queries succeeded.`;

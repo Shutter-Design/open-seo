@@ -48,6 +48,8 @@ export {
   postRankCheckTasks,
 } from "@/server/lib/dataforseo/serp";
 
+export { fetchSerpLocationsForCountry } from "@/server/lib/dataforseo/serp-locations";
+
 export { fetchLighthouseResult } from "@/server/lib/dataforseo/lighthouse";
 
 export {

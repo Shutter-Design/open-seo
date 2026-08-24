@@ -380,6 +380,15 @@ const getKeywordMetricsInputSchema = {
     .describe("Keywords to fetch metrics for (1-700)."),
   locationCode: locationCodeSchema.optional(),
   languageCode: languageCodeSchema.optional(),
+  locationName: z
+    .string()
+    .trim()
+    .min(1)
+    .max(300)
+    .optional()
+    .describe(
+      "Canonical DataForSEO city or region location_name. When supplied, volume, CPC and competition are local Google Ads metrics. KD and intent remain country-level context.",
+    ),
   includeMonthlyTrends: z
     .boolean()
     .optional()
@@ -1063,6 +1072,14 @@ export const getKeywordMetricsTool = {
     inputSchema: getKeywordMetricsInputSchema,
     outputSchema: {
       keywords: z.array(looseObjectOutputSchema),
+      scope: z
+        .object({
+          location_name: z.string(),
+          metrics_scope: z.literal("local"),
+          keyword_difficulty_scope: z.literal("country"),
+          intent_scope: z.literal("country"),
+        })
+        .optional(),
       ...optionalMetaOutputSchema,
     },
     annotations: {
@@ -1081,6 +1098,7 @@ export const getKeywordMetricsTool = {
       keywords: args.keywords,
       locationCode,
       languageCode,
+      locationName: args.locationName,
       includeClickstreamData: args.includeClickstreamData ?? false,
       creditFeature: "keyword_research",
     });
@@ -1095,7 +1113,17 @@ export const getKeywordMetricsTool = {
         : row,
     );
 
-    const header = `Fetched metrics for ${rows.length} keywords. Columns: volume = monthly searches, KD = keyword difficulty (0-100), CPC in USD, competition = paid competition (0-1); "—" = unavailable.`;
+    const scope = args.locationName
+      ? {
+          location_name: args.locationName,
+          metrics_scope: "local" as const,
+          keyword_difficulty_scope: "country" as const,
+          intent_scope: "country" as const,
+        }
+      : undefined;
+    const header = scope
+      ? `Fetched local Google Ads metrics for ${rows.length} keywords in ${scope.location_name}. Volume, CPC and competition are local. KD and intent are country-level context.`
+      : `Fetched metrics for ${rows.length} keywords. Columns: volume = monthly searches, KD = keyword difficulty (0-100), CPC in USD, competition = paid competition (0-1); "—" = unavailable.`;
     return mcpResponse({
       text:
         rows.length === 0
@@ -1106,7 +1134,7 @@ export const getKeywordMetricsTool = {
         args.projectId,
         `/p/${args.projectId}/keywords`,
       ),
-      structuredContent: { keywords: rows },
+      structuredContent: { keywords: rows, ...(scope ? { scope } : {}) },
     });
   }),
 };

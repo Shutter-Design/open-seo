@@ -136,4 +136,57 @@ describe("get_keyword_metrics for Google-Ads-only locations", () => {
       monthly_searches: [{ year: 2026, month: 5, search_volume: 6400 }],
     });
   });
+
+  it("labels city-scoped volume, CPC and competition as local metrics", async () => {
+    const keywordOverview = vi.fn().mockResolvedValue([
+      {
+        keyword: "plantation shutters",
+        keyword_info: { search_volume: 1000 },
+        keyword_properties: { keyword_difficulty: 42 },
+        search_intent_info: { main_intent: "commercial" },
+      },
+    ]);
+    const adsSearchVolume = vi.fn().mockResolvedValue([
+      {
+        keyword: "plantation shutters",
+        search_volume: 30,
+        cpc: 4.5,
+        competition: "MEDIUM",
+        competition_index: 38,
+      },
+    ]);
+
+    mocks.getProjectForOrganization.mockResolvedValue({
+      id: "project_1",
+      locationCode: 2826,
+      languageCode: "en",
+    });
+    mocks.createDataforseoClient.mockReturnValue({
+      labs: { keywordOverview },
+      keywords: { adsSearchVolume },
+    });
+
+    const result = await getKeywordMetricsTool.handler(
+      {
+        projectId: "project_1",
+        keywords: ["plantation shutters"],
+        locationName: "Kingston upon Thames,England,United Kingdom",
+      },
+      toolContext,
+    );
+
+    expect(adsSearchVolume).toHaveBeenCalledWith(
+      expect.objectContaining({
+        locationName: "Kingston upon Thames,England,United Kingdom",
+      }),
+    );
+    expect(result.structuredContent).toMatchObject({
+      scope: {
+        location_name: "Kingston upon Thames,England,United Kingdom",
+        metrics_scope: "local",
+        keyword_difficulty_scope: "country",
+        intent_scope: "country",
+      },
+    });
+  });
 });

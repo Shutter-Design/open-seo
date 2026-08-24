@@ -86,15 +86,25 @@ export async function fetchLiveSerp(input: {
   keyword: string;
   locationCode: number;
   languageCode: string;
+  locationName?: string;
+  locationCoordinate?: string;
+  device?: "desktop" | "mobile";
+  depth?: number;
 }): Promise<DataforseoApiResponse<SerpLiveItem[]>> {
+  const device = input.device ?? "desktop";
+  const locationParams = input.locationCoordinate
+    ? { location_coordinate: input.locationCoordinate }
+    : input.locationName
+      ? { location_name: input.locationName }
+      : { location_code: input.locationCode };
   const response = await serpApi().googleOrganicLiveAdvanced([
     new SerpGoogleOrganicLiveAdvancedRequestInfo({
       keyword: input.keyword,
-      location_code: input.locationCode,
+      ...locationParams,
       language_code: input.languageCode,
-      device: "desktop",
-      os: "windows",
-      depth: 100,
+      device,
+      os: device === "desktop" ? "windows" : "android",
+      depth: clampSerpDepth(input.depth ?? 100),
     }),
   ]);
   const task = assertOk(response);

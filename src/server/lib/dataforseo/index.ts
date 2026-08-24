@@ -45,6 +45,12 @@ export const fetchBusinessListingsCategories: DataforseoSections["fetchBusinessL
   async () =>
     (await loadDataforseoSections()).fetchBusinessListingsCategories();
 
+/** Free provider location catalogue lookup. Keep the SDK-backed implementation
+ * behind the same lazy boundary as every other DataForSEO section. */
+export const fetchSerpLocationsForCountry: DataforseoSections["fetchSerpLocationsForCountry"] =
+  async (countryCode) =>
+    (await loadDataforseoSections()).fetchSerpLocationsForCountry(countryCode);
+
 export type {
   BusinessTaskEndpoint,
   BusinessTaskOutcome,
